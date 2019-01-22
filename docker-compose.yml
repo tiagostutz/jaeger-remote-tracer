@@ -10,7 +10,7 @@ services:
     environment:
       - LOG_LEVEL=debug
       - JAEGER_SERVICE_NAME=global-service-test-tracer
-      - JAEGER_AGENT_HOST_PORT=172.20.10.3:6831
+      - JAEGER_AGENT_HOST_PORT=172.20.10.2:6831
     networks:
       - test-tracer
 

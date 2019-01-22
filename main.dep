@@ -15,6 +15,7 @@ import (
 	_ "github.com/prometheus/client_golang/prometheus/promhttp"
 	_ "github.com/uber/jaeger-client-go"
 	_ "github.com/uber/jaeger-client-go/config"
+	_ "github.com/uber/jaeger-lib/metrics/prometheus"
 	_ "go.uber.org/zap"
 )
 
