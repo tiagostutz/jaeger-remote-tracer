@@ -1,0 +1,19 @@
+version: '3.7'
+
+services:
+
+  tracer:
+    build: .
+    image: tiagostutz/jaeger-remote-tracer
+    ports:
+      - 3300:3000
+    environment:
+      - LOG_LEVEL=debug
+      - JAEGER_SERVICE_NAME=global-service-test-tracer
+      - JAEGER_AGENT_HOST_PORT=172.20.10.3:6831
+    networks:
+      - test-tracer
+
+networks:
+  test-tracer:
+    name: test-tracer    

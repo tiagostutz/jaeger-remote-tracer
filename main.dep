@@ -1,0 +1,23 @@
+package main
+
+import (
+	_ "encoding/json"
+	_ "flag"
+	"fmt"
+	_ "io"
+	_ "io/ioutil"
+	_ "net/http"
+	_ "os"
+
+	_ "github.com/gorilla/mux"
+	_ "github.com/opentracing/opentracing-go"
+	_ "github.com/prometheus/client_golang/prometheus"
+	_ "github.com/prometheus/client_golang/prometheus/promhttp"
+	_ "github.com/uber/jaeger-client-go"
+	_ "github.com/uber/jaeger-client-go/config"
+	_ "go.uber.org/zap"
+)
+
+func main() {
+	fmt.Println("This is used for build caching purposes. Should be replaced.")
+}
