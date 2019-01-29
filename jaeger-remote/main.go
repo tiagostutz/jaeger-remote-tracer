@@ -273,6 +273,7 @@ func StartTrace(serviceName string, spanName string, context map[string]string, 
 	println(traceRequestID)
 	pendingSpans[traceRequestID] = span
 	pendingCloser[traceRequestID] = closer
+	span.Tracer().Inject(span.Context(), opentracing.TextMap, opentracing.TextMapCarrier(output))
 	output["traceRequestID"] = traceRequestID
 
 	return output, nil
@@ -295,9 +296,9 @@ func FinishTrace(serviceName string, spanName string, context map[string]string,
 	if span == nil {
 		return nil, fmt.Errorf("Span with traceRequestID=%s not found. Maybe the remote-tracer server has been restarted or you hit a different instance at start and finish", context["traceRequestID"])
 	}
+	span.Finish()
 	closer := pendingCloser[context["traceRequestID"]]
 	defer closer.Close()
-	span.Finish()
 	// return the Context in the response so the client can forward it to keep the trace chain
 	span.Tracer().Inject(span.Context(), opentracing.TextMap, opentracing.TextMapCarrier(output))
 
