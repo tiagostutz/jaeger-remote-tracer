@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"time"
 
 	"github.com/opentracing/opentracing-go"
 
@@ -46,7 +47,6 @@ var listenIP string
 var listenPort int
 var jaegerLocalAgentHostPort, jaegerServiceName string
 
-var spanStartAndFinishEndpointName = "/trace"
 var spanStartEndpointName = "/trace/start"
 var spanFinishEndpointName = "/trace/finish"
 
@@ -88,7 +88,6 @@ func main() {
 	prometheus.MustRegister(traceRecord)
 
 	router := mux.NewRouter()
-	router.HandleFunc(spanStartAndFinishEndpointName, handleStartAndFinishTrace).Methods("POST")
 	router.HandleFunc(spanStartEndpointName, handleStartSpan).Methods("POST")
 	router.HandleFunc(spanFinishEndpointName, handleFinishSpan).Methods("POST")
 	router.Handle("/metrics", promhttp.Handler())
@@ -184,56 +183,14 @@ func handleBaseSpanCreation(endpointName string, w http.ResponseWriter, r *http.
 	endpointRequest.WithLabelValues("200", endpointName).Inc()
 }
 
-func handleStartAndFinishTrace(w http.ResponseWriter, r *http.Request) {
-	handleBaseSpanCreation(spanStartAndFinishEndpointName, w, r, StartAndFinishTrace)
-}
-
 func handleStartSpan(w http.ResponseWriter, r *http.Request) {
-	handleBaseSpanCreation(spanStartAndFinishEndpointName, w, r, StartTrace)
+	sugar.Infof("START HTTP ENDPOINT")
+	handleBaseSpanCreation(spanStartEndpointName, w, r, StartTrace)
 }
 
 func handleFinishSpan(w http.ResponseWriter, r *http.Request) {
-	handleBaseSpanCreation(spanStartAndFinishEndpointName, w, r, FinishTrace)
-}
-
-// StartAndFinishTrace record the trace with the values received and returns its context
-func StartAndFinishTrace(serviceName string, spanName string, context map[string]string, tags map[string]interface{}) (map[string]string, error) {
-
-	if serviceName == "" {
-		return nil, errors.New("`serviceName` attribute is a required field on the request. Please check your request body")
-	}
-
-	if spanName == "" {
-		return nil, errors.New("`spanName` attribute is a required field on the request. Please check your request body")
-	}
-
-	output := make(map[string]string)
-
-	tracer, closer, err := traceConfig.New(serviceName, config.Logger(jaegerlog.StdLogger), config.Metrics(metricsFactory))
-	if err != nil {
-		panic(fmt.Sprintf("ERROR: cannot init Jaeger: %v\n", err))
-	}
-	defer closer.Close()
-
-	var span opentracing.Span
-	if context != nil {
-		spanCtx, err := tracer.Extract(opentracing.TextMap, opentracing.TextMapCarrier(context))
-		if err == nil {
-			span = tracer.StartSpan(spanName, opentracing.ChildOf(spanCtx))
-		} else { // if there's a error extracting, trace, but put a tag pointing the error
-			span = tracer.StartSpan(spanName)
-			span.SetTag("trace-fallback", "error-retrieving-the-context")
-		}
-	} else {
-		span = tracer.StartSpan(spanName)
-	}
-
-	span.Finish()
-
-	// return the Context in the response so the client can forward it to keep the trace chain
-	span.Tracer().Inject(span.Context(), opentracing.TextMap, opentracing.TextMapCarrier(output))
-
-	return output, nil
+	sugar.Infof("FINISH HTTP ENDPOINT")
+	handleBaseSpanCreation(spanFinishEndpointName, w, r, FinishTrace)
 }
 
 // StartTrace starts the trace with the values received and returns its context
@@ -247,26 +204,30 @@ func StartTrace(serviceName string, spanName string, context map[string]string, 
 		return nil, errors.New("`spanName` attribute is a required field on the request. Please check your request body")
 	}
 
+	sugar.Infof("TAGS %s", tags)
+
 	output := make(map[string]string)
 
 	tracer, closer, err := traceConfig.New(serviceName, config.Logger(jaegerlog.StdLogger), config.Metrics(metricsFactory))
+	opentracing.SetGlobalTracer(tracer)
 	if err != nil {
 		panic(fmt.Sprintf("ERROR: cannot init Jaeger: %v\n", err))
 	}
 
 	var span opentracing.Span
-	if context != nil {
+	if context != nil && len(context) > 0 {
 		spanCtx, err := tracer.Extract(opentracing.TextMap, opentracing.TextMapCarrier(context))
 		if err == nil {
-			span = tracer.StartSpan(spanName, opentracing.ChildOf(spanCtx))
+			span = tracer.StartSpan(spanName, opentracing.ChildOf(spanCtx), opentracing.Tags(tags))
 		} else { // if there's a error extracting, trace, but put a tag pointing the error
-			span = tracer.StartSpan(spanName)
-			span.SetTag("trace-fallback", "error-retrieving-the-context")
+			span = tracer.StartSpan(spanName, opentracing.Tags(tags))
+			span.SetTag("trace-fallback", "error-retrieving-the-context-start-async")
 		}
 	} else {
-		span = tracer.StartSpan(spanName)
+		span = tracer.StartSpan(spanName, opentracing.Tags(tags))
 	}
 
+	sugar.Infof("Start TRACE: %s ---- %s => %s", serviceName, span, time.Now().Unix())
 	uuid1, err := uuid.NewUUID()
 	uuid4, err := uuid.NewRandom()
 	traceRequestID := uuid1.String() + "<>" + uuid4.String()
@@ -281,7 +242,6 @@ func StartTrace(serviceName string, spanName string, context map[string]string, 
 
 // FinishTrace starts the trace with the values received and returns its context
 func FinishTrace(serviceName string, spanName string, context map[string]string, tags map[string]interface{}) (map[string]string, error) {
-
 	if context == nil {
 		return nil, errors.New("`context` attribute is a required field on the request. It must have a `traceID` field with the correlated started trace")
 	}
@@ -293,14 +253,15 @@ func FinishTrace(serviceName string, spanName string, context map[string]string,
 	output := make(map[string]string)
 
 	span := pendingSpans[context["traceRequestID"]]
+	sugar.Infof("Finish TRACE: %s => %s", span, time.Now().Unix())
 	if span == nil {
 		return nil, fmt.Errorf("Span with traceRequestID=%s not found. Maybe the remote-tracer server has been restarted or you hit a different instance at start and finish", context["traceRequestID"])
 	}
 	span.Finish()
+
 	closer := pendingCloser[context["traceRequestID"]]
 	defer closer.Close()
 	// return the Context in the response so the client can forward it to keep the trace chain
-	span.Tracer().Inject(span.Context(), opentracing.TextMap, opentracing.TextMapCarrier(output))
 
 	return output, nil
 }
